@@ -71,53 +71,6 @@ async def lifespan(app: FastMCP):
 
 mcp = FastMCP(name="windows-mcp", instructions=instructions, lifespan=lifespan)
 
-
-def _resolve_element_location(
-    element_name: str, window_title: str | None = None
-) -> tuple[int, int]:
-    """Find a UI element by name and return its center coordinates.
-
-    Uses Windows UI Automation to locate the element. Optionally scoped
-    to a specific window by title (substring match).
-
-    Args:
-        element_name: The Name property of the UI element to find (exact match).
-        window_title: Window title substring to scope the search.
-
-    Returns:
-        Tuple of (x, y) center coordinates ready for clicking.
-
-    Raises:
-        ValueError: If the element or window cannot be found.
-    """
-    if window_title:
-        search_root = uia.WindowControl(SubName=window_title)
-        if not search_root.Exists(maxSearchSeconds=3):
-            raise ValueError(
-                f"Window matching '{window_title}' not found. "
-                f"Check that the window is open and visible."
-            )
-    else:
-        search_root = None
-
-    element = uia.Control(searchFromControl=search_root, Name=element_name)
-    if not element.Exists(maxSearchSeconds=3):
-        scope_msg = f" in window '{window_title}'" if window_title else ""
-        raise ValueError(
-            f"Element '{element_name}' not found{scope_msg}. "
-            f"Verify the element name is correct and visible on screen."
-        )
-
-    rect = element.BoundingRectangle
-    if rect.width() == 0 or rect.height() == 0:
-        raise ValueError(
-            f"Element '{element_name}' found but has zero size "
-            f"(may be off-screen or collapsed)."
-        )
-
-    return (rect.xcenter(), rect.ycenter())
-
-
 @mcp.tool(
     name="App",
     description="Manages Windows applications with three modes: 'launch' (opens the prescibed application), 'resize' (adjusts active window size/position), 'switch' (brings specific window into focus).",
@@ -134,10 +87,10 @@ def app_tool(mode:Literal['launch','resize','switch']='launch',name:str|None=Non
     return desktop.app(mode,name,window_loc,window_size)
     
 @mcp.tool(
-    name="Shell",
+    name="PowerShell",
     description="A comprehensive system tool for executing any PowerShell commands. Use it to navigate the file system, manage files and processes, and execute system-level operations. Capable of accessing web content (e.g., via Invoke-WebRequest), interacting with network resources, and performing complex administrative tasks. This tool provides full access to the underlying operating system capabilities, making it the primary interface for system automation, scripting, and deep system interaction.",
     annotations=ToolAnnotations(
-        title="Shell",
+        title="PowerShell",
         readOnlyHint=False,
         destructiveHint=True,
         idempotentHint=False,
@@ -154,18 +107,18 @@ def powershell_tool(command: str, timeout: int = 30, ctx: Context = None) -> str
 
 
 @mcp.tool(
-    name='File',
+    name='FileSystem',
     description="Manages file system operations with eight modes: 'read' (read text file contents with optional line offset/limit), 'write' (create or overwrite a file, set append=True to append), 'copy' (copy file or directory to destination), 'move' (move or rename file/directory), 'delete' (delete file or directory, set recursive=True for non-empty dirs), 'list' (list directory contents with optional pattern filter), 'search' (find files matching a glob pattern), 'info' (get file/directory metadata like size, dates, type). Relative paths are resolved from the user's Desktop folder. Use absolute paths to access other locations.",
     annotations=ToolAnnotations(
-        title="File",
+        title="FileSystem",
         readOnlyHint=False,
         destructiveHint=True,
         idempotentHint=False,
         openWorldHint=False
     )
     )
-@with_analytics(analytics, "File-Tool")
-def file_tool(
+@with_analytics(analytics, "FileSystem-Tool")
+def file_system_tool(
     mode: Literal['read', 'write', 'copy', 'move', 'delete', 'list', 'search', 'info'],
     path: str,
     destination: str | None = None,
@@ -306,23 +259,14 @@ def click_tool(
     loc: list[int] | None = None,
     button: Literal["left", "right", "middle"] = "left",
     clicks: int = 1,
-    element_name: str | None = None,
-    window_title: str | None = None,
     ctx: Context = None,
 ) -> str:
-    if element_name:
-        x, y = _resolve_element_location(element_name, window_title)
-        loc = [x, y]
-    elif loc is None:
-        raise ValueError("Either loc [x, y] or element_name must be provided.")
-    elif len(loc) != 2:
+    if len(loc) != 2:
         raise ValueError("Location must be a list of exactly 2 integers [x, y]")
-    else:
-        x, y = loc[0], loc[1]
+    x, y = loc[0], loc[1]
     desktop.click(loc=loc, button=button, clicks=clicks)
     num_clicks = {0: "Hover", 1: "Single", 2: "Double"}
-    source = f" (element: '{element_name}')" if element_name else ""
-    return f"{num_clicks.get(clicks)} {button} clicked at ({x},{y}){source}."
+    return f"{num_clicks.get(clicks)} {button} clicked at ({x},{y})."
 
 
 @mcp.tool(
@@ -395,9 +339,6 @@ def scroll_tool(
         "Moves mouse cursor to coordinates [x, y]. "
         "Set drag=True to perform a drag-and-drop operation from the current mouse position "
         "to the target coordinates. Default (drag=False) is a simple cursor move (hover). "
-        "Optionally: pass element_name to move to a UI element by its accessible name "
-        "(using Windows UI Automation), no coordinates needed. "
-        "Use window_title to scope the search to a specific window."
     ),
     annotations=ToolAnnotations(
         title="Move",
@@ -411,27 +352,20 @@ def scroll_tool(
 def move_tool(
     loc: list[int] | None = None,
     drag: bool | str = False,
-    element_name: str | None = None,
-    window_title: str | None = None,
     ctx: Context = None,
 ) -> str:
     drag = drag is True or (isinstance(drag, str) and drag.lower() == "true")
-    if element_name:
-        x, y = _resolve_element_location(element_name, window_title)
-        loc = [x, y]
-    elif loc is None:
-        raise ValueError("Either loc [x, y] or element_name must be provided.")
+    if loc is None:
+        raise ValueError("loc must be provided.")
     elif len(loc) != 2:
         raise ValueError("loc must be a list of exactly 2 integers [x, y]")
-    else:
-        x, y = loc[0], loc[1]
-    source = f" (element: '{element_name}')" if element_name else ""
+    x, y = loc[0], loc[1]
     if drag:
         desktop.drag(loc)
-        return f"Dragged to ({x},{y}){source}."
+        return f"Dragged to ({x},{y})."
     else:
         desktop.move(loc)
-        return f"Moved the mouse pointer to ({x},{y}){source}."
+        return f"Moved the mouse pointer to ({x},{y})."
 
 
 @mcp.tool(

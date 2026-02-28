@@ -217,6 +217,18 @@ class Desktop:
     def execute_command(self, command: str, timeout: int = 10) -> tuple[str, int]:
         try:
             encoded = base64.b64encode(command.encode("utf-16le")).decode("ascii")
+            env = os.environ.copy()
+            # Fix PATHEXT if clobbered by venv activation (uv strips it to .CPL)
+            if ".EXE" not in env.get("PATHEXT", ""):
+                try:
+                    import winreg
+                    with winreg.OpenKey(
+                        winreg.HKEY_LOCAL_MACHINE,
+                        r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+                    ) as key:
+                        env["PATHEXT"] = winreg.QueryValueEx(key, "PATHEXT")[0]
+                except Exception:
+                    env["PATHEXT"] = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL;.PY;.PYW"
             result = subprocess.run(
                 [
                     "powershell",
@@ -229,7 +241,7 @@ class Desktop:
                 capture_output=True,  # No errors='ignore' - let subprocess return bytes
                 timeout=timeout,
                 cwd=os.path.expanduser(path="~"),
-                env=os.environ.copy(),  # Inherit environment variables including PATH
+                env=env,
             )
             # Handle both bytes and str output (subprocess behavior varies by environment)
             stdout = result.stdout
@@ -463,8 +475,11 @@ class Desktop:
         bounding_rectangle = element_handle.BoundingRectangle
         return bounding_rectangle.xcenter(), bounding_rectangle.ycenter()
 
-    def click(self, loc: tuple[int, int], button: str = "left", clicks: int = 2):
-        x, y = loc
+    def click(self, loc: tuple[int, int]|list[int], button: str = "left", clicks: int = 2):
+        if isinstance(loc, list):
+            x, y = loc[0], loc[1]
+        else:
+            x, y = loc
         if clicks == 0:
             uia.SetCursorPos(x, y)
             return
@@ -542,7 +557,11 @@ class Desktop:
                 return 'Invalid type. Use "horizontal" or "vertical".'
         return None
 
-    def drag(self, loc: tuple[int, int]):
+    def drag(self, loc: tuple[int, int]|list[int]):
+        if isinstance(loc, list):
+            x, y = loc[0], loc[1]
+        else:
+            x, y = loc
         x, y = loc
         sleep(0.5)
         cx, cy = uia.GetCursorPos()
