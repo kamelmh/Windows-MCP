@@ -1,6 +1,5 @@
 import logging
 import os
-import platform
 from typing import Callable
 
 from PIL import Image, ImageGrab
@@ -130,12 +129,7 @@ def capture_with_mss(capture_rect, crop_screenshot: Callable[[Image.Image, objec
 
 
 def _auto_backend_chain() -> list[str]:
-    system = platform.system().lower()
-    if system == "windows":
-        return ["dxcam", "mss", "pillow"]
-    if system == "darwin":
-        return ["mss", "pillow"]
-    return ["mss", "pillow"]
+    return ["dxcam", "mss", "pillow"]
 
 
 def capture(

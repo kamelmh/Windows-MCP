@@ -219,8 +219,6 @@ class TestDisplayFiltering:
         monkeypatch.setattr("windows_mcp.desktop.screenshot.dxcam", None)
         monkeypatch.setattr("windows_mcp.desktop.service.mss", fake_mss_module)
         monkeypatch.setattr("windows_mcp.desktop.screenshot.mss", fake_mss_module)
-        monkeypatch.setattr("platform.system", lambda: "Windows")
-
         screenshot = desktop.get_screenshot(capture_rect=capture_rect)
 
         assert screenshot.size == (1920, 1080)
