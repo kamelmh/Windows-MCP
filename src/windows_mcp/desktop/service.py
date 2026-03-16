@@ -1,4 +1,4 @@
-from windows_mcp.desktop.utils import ps_quote, ps_quote_for_xml
+from windows_mcp.desktop.utils import ps_quote, ps_quote_for_xml, resolve_known_folder_guid_path
 from windows_mcp.vdm.core import (
     get_all_desktops,
     get_current_desktop,
@@ -477,8 +477,9 @@ class Desktop:
 
         pid = 0
         if os.path.exists(appid) or "\\" in appid:
-            safe = ps_quote(appid)
-            command = f"Start-Process {safe} -PassThru | Select-Object -ExpandProperty Id"
+            exe_path = resolve_known_folder_guid_path(appid)
+            safe_exe_path = ps_quote(exe_path)
+            command = f"Start-Process {safe_exe_path} -PassThru | Select-Object -ExpandProperty Id"
             response, status = self.execute_command(command)
             if status == 0 and response.strip().isdigit():
                 pid = int(response.strip())
