@@ -418,6 +418,7 @@ class Desktop:
 
             result = subprocess.run(
                 args,
+                stdin=subprocess.DEVNULL,  # Prevent child processes from inheriting the MCP pipe stdin
                 capture_output=True,  # No errors='ignore' - let subprocess return bytes
                 timeout=timeout,
                 cwd=os.path.expanduser(path="~"),
