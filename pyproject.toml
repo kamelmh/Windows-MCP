@@ -75,3 +75,11 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.uv]
+# cryptography 46.0.0–46.0.3 are the only versions that publish pre-built
+# win_arm64 wheels (required for Windows 11 ARM64 / Snapdragon devices).
+# Versions >=46.0.4 dropped those wheels again; pin to stay in the safe range.
+override-dependencies = [
+    "cryptography>=46.0.0,<=46.0.3",
+]
