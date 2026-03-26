@@ -2,9 +2,6 @@ version = 1
 revision = 3
 requires-python = ">=3.13"
 
-[manifest]
-overrides = [{ name = "cryptography", specifier = ">=46.0.0,<=46.0.3" }]
-
 [[package]]
 name = "aiofile"
 version = "3.9.0"
@@ -1921,6 +1918,7 @@ source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "comtypes" },
+    { name = "cryptography" },
     { name = "dxcam" },
     { name = "fastmcp" },
     { name = "fuzzywuzzy" },
@@ -1950,6 +1948,7 @@ dev = [
 requires-dist = [
     { name = "click", specifier = ">=8.2.1" },
     { name = "comtypes", specifier = ">=1.4.15" },
+    { name = "cryptography", specifier = ">=46.0.0,<=46.0.3" },
     { name = "dxcam", specifier = ">=0.3.0" },
     { name = "fastmcp", specifier = ">=3.0" },
     { name = "fuzzywuzzy", specifier = ">=0.18.0" },
