@@ -1,4 +1,9 @@
-from windows_mcp.desktop.utils import ps_quote, ps_quote_for_xml, resolve_known_folder_guid_path
+from windows_mcp.desktop.utils import (
+    ps_quote,
+    ps_quote_for_xml,
+    resolve_known_folder_guid_path,
+    run_with_graceful_timeout
+)
 from windows_mcp.vdm.core import (
     get_all_desktops,
     get_current_desktop,
@@ -368,7 +373,7 @@ class Desktop:
                     apps[name] = lnk_path
         return apps
 
-    def execute_command(self, command: str, timeout: int = 10) -> tuple[str, int]:
+    def execute_command(self, command: str, timeout: int = 10, shell: str | None = None) -> tuple[str, int]:
         try:
             # $OutputEncoding: controls how PS5.1 encodes output written to its stdout pipe.
             # Without this set to UTF-8, PS5.1 uses the system codepage and native process
@@ -411,7 +416,7 @@ class Desktop:
                 if ".EXE" not in env.get("PATHEXT", ""):
                     env["PATHEXT"] = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL;.PY;.PYW"
 
-            shell = "pwsh" if shutil.which("pwsh") else "powershell"
+            shell = shell or ("pwsh" if shutil.which("pwsh") else "powershell")
 
             args = [shell, "-NoProfile"]
             # Only older Windows PowerShell (5.1) uses -OutputFormat Text successfully here
@@ -420,7 +425,7 @@ class Desktop:
                 args.extend(["-OutputFormat", "Text"])
             args.extend(["-EncodedCommand", encoded])
 
-            result = subprocess.run(
+            result = run_with_graceful_timeout(
                 args,
                 stdin=subprocess.DEVNULL,  # Prevent child processes from inheriting the MCP pipe stdin
                 capture_output=True,  # No errors='ignore' - let subprocess return bytes
@@ -665,8 +670,17 @@ class Desktop:
             try:
                 for thread in (foreground_thread, target_thread):
                     if thread and thread != current_tid:
-                        win32process.AttachThreadInput(current_tid, thread, True)
-                        attached_threads.append(thread)
+                        try:
+                            win32process.AttachThreadInput(current_tid, thread, True)
+                            attached_threads.append(thread)
+                        except Exception as e:
+                            # AttachThreadInput fails with Access Denied for elevated
+                            # processes (e.g. Settings, Task Manager). Skip the attach
+                            # and still attempt SetForegroundWindow below.
+                            logger.debug(
+                                f"AttachThreadInput failed for thread {thread} "
+                                f"(likely elevated process), skipping: {e}"
+                            )
 
                 win32gui.SetForegroundWindow(target_handle)
                 win32gui.BringWindowToTop(target_handle)
@@ -1382,15 +1396,33 @@ class Desktop:
             return screenshot
         return screenshot.crop(self._build_crop_box(capture_rect))
 
-    def send_notification(self, title: str, message: str) -> str:
+    def send_notification(self, title: str, message: str, app_id: str) -> str:
+        """Send a Windows toast notification with a title and message.
+
+        Args:
+            title: The title of the notification.
+            message: The message of the notification.
+            app_id: The valid Application User Model ID of the toast notification.
+                Required to display the notification in a specific app.
+
+        Returns:
+            A string indicating the result of the notification.
+
+        Notes:
+            The MCP client MUST provide an App ID because Windows uses it as the
+            app identity for desktop toast notifications, and it MUST match a
+            registered shortcut/AppUserModelID.
+        """
         safe_title = ps_quote_for_xml(title)
         safe_message = ps_quote_for_xml(message)
+        safe_app_id = ps_quote(app_id)
 
         ps_script = (
             "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null\n"
             "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null\n"
             f"$notifTitle = {safe_title}\n"
             f"$notifMessage = {safe_message}\n"
+            f"$appId = {safe_app_id}\n"
             '$template = @"\n'
             "<toast>\n"
             "    <visual>\n"
@@ -1403,11 +1435,12 @@ class Desktop:
             '"@\n'
             "$xml = New-Object Windows.Data.Xml.Dom.XmlDocument\n"
             "$xml.LoadXml($template)\n"
-            '$notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Windows MCP")\n'
+            "$notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId)\n"
             "$toast = New-Object Windows.UI.Notifications.ToastNotification $xml\n"
             "$notifier.Show($toast)"
         )
-        response, status = self.execute_command(ps_script)
+        # Use Windows PowerShell (5.1) explicitly because the WinRT toast APIs are not available in PowerShell 7+ (pwsh).
+        response, status = self.execute_command(ps_script, shell="powershell")
         if status == 0:
             return f'Notification sent: "{title}" - {message}'
         else:
